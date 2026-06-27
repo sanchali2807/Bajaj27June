@@ -15,126 +15,164 @@ app.get("/",(req,res)=>{
 })
 
 
-// api.post("/bfhl",(req,res)=>{
-//     const data = req.body.data || [];
-//     const valid_edge = 
-// })
+app.post("/bfhl",(req,res)=>{
+    const data = req.body.data || [];
+    const seen = new Set();
+    const edges = [];
+    const invalid_entries = [];
+    const duplicate_edges = [];
+    for(const raw  of data){
+        const s = String.Entry().trim();
+        const match = s.match(/^([A-Z]) -> ([A-Z])^/);
+        if(!match || match[1] == match[2]){
+            invalid_entries.push(match);
+            continue;
+        }
+        const from = match[1];
+        const to = match[2];
+        const key = `{from}->{to}`;
+        if(seen.has(key)){
+            if(!duplicate_edges.includes(key))duplicate_edges.push(key);
+            continue;
+        }
+        const children = {};
+        const parent = {};
+        const allNodes = new Set();
 
+        for (const { from, to } of edges) {
+            allNodes.add(from);
+            allNodes.add(to);
 
+            if (parent[to]) continue;  
 
+            parent[to] = from;
+            children[from] = children[from] || [];
+            children[from].push(to);
+        }
 
+        for (const n of allNodes) {
+            children[n] = children[n] || []; 
+        }
 
+        const visited  = new Set();
+        const groups   = [];         
 
+        function collectGroup(startNode) {
+            const group = new Set();
+            const queue = [startNode];
+            while (queue.length) {
+            const node = queue.pop();
+            if (group.has(node)) continue;
+            group.add(node);
+            for (const child of children[node]) queue.push(child);
+            if (parent[node]) queue.push(parent[node]);
+            }
+            return group;
+        }
 
+        for (const node of allNodes) {
+            if (!visited.has(node)) {
+            const group = collectGroup(node);
+            groups.push(group);
+            for (const n of group) visited.add(n);
+            }
+        }
+        const hierarchies = [];
+        let total_trees  = 0;
+        let total_cycles = 0;
 
+        for (const group of groups) {
+            const sortedNodes = [...group].sort();
+            const root = sortedNodes.find(n => !parent[n]) || sortedNodes[0];
+            function hasCycle() {
+            const state = {}; 
+            function dfs(node) {
+                state[node] = "visiting";
+                for (const child of children[node]) {
+                if (!group.has(child)) continue;
+                if (state[child] === "visiting") return true;
+                if (!state[child] && dfs(child)) return true;
+                }
+                state[node] = "done";
+                return false;
+            }
+            for (const node of group) {
+                if (!state[node] && dfs(node)) return true;
+            }
+            return false;
+            }
 
+            if (hasCycle()) {
+            total_cycles++;
+            hierarchies.push({ root, tree: {}, has_cycle: true });
 
+            } else {
+           
+            function buildTree(node) {
+                const obj = {};
+                for (const child of children[node]) {
+                obj[child] = buildTree(child);  
+                }
+                return obj;
+            }
+            function getDepth(node) {
+                if (children[node].length === 0) return 1;  
+                return 1 + Math.max(...children[node].map(getDepth));
+            }
 
-
-
-
-
-
-
-app.post("/bfhl", (req, res) => {
-  const data = req.body.data || [];
-  const validEdge = /^([A-Z])->([A-Z])$/;
-  const seen = new Set();
-  const edges = [];
-  const invalid_entries = [];
-  const duplicate_edges = [];
-
-  // Step 1: validate and deduplicate
-  for (const raw of data) {
-    const s = String(raw).trim();
-    const m = validEdge.exec(s);
-    if (!m || m[1] === m[2]) { invalid_entries.push(raw); continue; }
-    const key = `${m[1]}->${m[2]}`;
-    if (seen.has(key)) { if (!duplicate_edges.includes(key)) duplicate_edges.push(key); continue; }
-    seen.add(key);
-    edges.push({ p: m[1], c: m[2] });
+            total_trees++;
+            hierarchies.push({
+                root,
+                tree: { [root]: buildTree(root) },
+                depth: getDepth(root),
+            });
+            }
   }
 
-  // Step 2: build graph (first parent wins)
-  const adj = {}, childOf = {}, nodes = new Set();
-  for (const { p, c } of edges) {
-    nodes.add(p); nodes.add(c);
-    if (childOf[c]) continue;
-    childOf[c] = p;
-    adj[p] = adj[p] || [];
-    adj[p].push(c);
-  }
-  for (const n of nodes) adj[n] = adj[n] || [];
-
-  // Step 3: union-find to get components
-  const par = {};
-  for (const n of nodes) par[n] = n;
-  const find = x => par[x] === x ? x : (par[x] = find(par[x]));
-  const union = (a, b) => { par[find(a)] = find(b); };
-  for (const n of nodes) for (const c of adj[n]) union(n, c);
-  const groups = {};
-  for (const n of nodes) { const r = find(n); groups[r] = groups[r] || new Set(); groups[r].add(n); }
-
-  // Step 4: cycle detection (DFS)
-  const hasCycle = group => {
-    const color = {};
-    for (const n of group) color[n] = 0;
-    const dfs = n => {
-      color[n] = 1;
-      for (const c of adj[n]) {
-        if (!group.has(c)) continue;
-        if (color[c] === 1) return true;
-        if (color[c] === 0 && dfs(c)) return true;
-      }
-      color[n] = 2; return false;
-    };
-    for (const n of group) if (color[n] === 0 && dfs(n)) return true;
-    return false;
-  };
-
-  // Step 5: build tree object
-  const buildTree = (n, vis = new Set()) => {
-    if (vis.has(n)) return {};
-    vis.add(n);
-    const o = {};
-    for (const c of adj[n]) o[c] = buildTree(c, new Set(vis));
-    return o;
-  };
-
-  const depth = (n, memo = {}) => {
-    if (memo[n] !== undefined) return memo[n];
-    const ch = adj[n] || [];
-    return (memo[n] = ch.length === 0 ? 1 : 1 + Math.max(...ch.map(c => depth(c, memo))));
-  };
-
-  // Step 6: build hierarchies
-  const hierarchies = [];
-  let total_trees = 0, total_cycles = 0;
-
-  for (const group of Object.values(groups)) {
-    const sorted = [...group].sort();
-    const root = sorted.find(n => !childOf[n]) || sorted[0];
-    if (hasCycle(group)) {
-      total_cycles++;
-      hierarchies.push({ root, tree: {}, has_cycle: true });
-    } else {
-      total_trees++;
-      hierarchies.push({ root, tree: { [root]: buildTree(root) }, depth: depth(root) });
     }
-  }
+            hierarchies.sort((a, b) => {
+            if (!!a.has_cycle !== !!b.has_cycle) return a.has_cycle ? 1 : -1;
+            return a.root.localeCompare(b.root);
+        });
 
-  hierarchies.sort((a, b) => !!a.has_cycle - !!b.has_cycle || a.root.localeCompare(b.root));
+        
+        const trees = hierarchies.filter(h => !h.has_cycle);
+        const largest = trees.reduce((best, cur) => {
+            if (!best) return cur;
+            if (cur.depth > best.depth) return cur;
+            if (cur.depth === best.depth && cur.root < best.root) return cur;
+            return best;
+        }, null);
 
-  const nonCyclic = hierarchies.filter(h => !h.has_cycle);
-  const best = nonCyclic.reduce((a, b) => b.depth > a.depth || (b.depth === a.depth && b.root < a.root) ? b : a, nonCyclic[0]);
+        
+        return {
+            ...userInfo,
+            hierarchies,
+            invalid_entries,
+            duplicate_edges,
+            summary: {
+            total_trees,
+            total_cycles,
+            largest_tree_root: largest?.root || "",
+            },
+  };
+})
 
-  res.json({
-    ...USER,
-    hierarchies,
-    invalid_entries,
-    duplicate_edges,
-    summary: { total_trees, total_cycles, largest_tree_root: best?.root || "" }
-  });
-});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.listen(3001, () => console.log("API running on :3001"));
